@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Review Sentiment Demo</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#222}
+ textarea{width:100%;height:110px;padding:8px;font:inherit;box-sizing:border-box}
+ button{margin-top:10px;padding:8px 18px;font:inherit;cursor:pointer}
+ .or{margin:14px 0 6px;color:#666}
+ #out{margin-top:20px;display:none}
+ .label{padding:14px;border-radius:6px;font-size:1.4em;font-weight:700}
+ .positive{background:#e3f6e8}.negative{background:#fde7e7}.neutral{background:#eceff3}
+ .error{color:#a00}
+ .note{color:#666;font-size:.9em;margin-bottom:6px}
+ .scroll{max-height:380px;overflow:auto;border:1px solid #ddd;border-radius:6px}
+ table{border-collapse:collapse;width:100%}
+ th,td{padding:6px 10px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+ th{position:sticky;top:0;background:#f6f6f6}
+ td.s{white-space:nowrap;font-weight:600}
+ td.s.positive{color:#14783a;background:none}td.s.negative{color:#b3261e;background:none}td.s.neutral{color:#555;background:none}
+</style></head><body>
+<h2>Customer Review Sentiment</h2>
+
+<textarea id="review" placeholder="Type or paste a review..."></textarea>
+<div class="or">or upload a CSV file of reviews (if a file is chosen, it is used instead of the text box)</div>
+<input type="file" id="file" accept=".csv,text/csv"><br>
+<button id="go">Analyze</button>
+<div id="out"></div>
+
+<script>
+const out = document.getElementById('out');
+const show = (node) => { out.innerHTML = ''; out.style.display = 'block'; out.appendChild(node); };
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+
+async function post(url, options) {
+  try {
+    const r = await fetch(url, options);
+    const d = await r.json();
+    return { ok: r.ok, d };
+  } catch (e) {
+    return { ok: false, d: { error: 'Cannot reach the server. Start it with "python app.py" and open http://127.0.0.1:5000 in the browser (do not open index.html directly).' } };
+  }
+}
+
+document.getElementById('go').onclick = async () => {
+  show(el('div', 'note', 'Analyzing...'));
+  const file = document.getElementById('file').files[0];
+
+  if (file) {                                    // ---- CSV of many reviews ----
+    const form = new FormData(); form.append('file', file);
+    const { ok, d } = await post('/api/predict_csv', { method: 'POST', body: form });
+    if (!ok) return show(el('div', 'error', d.error || 'Server error'));
+    return showTable(d);
+  }
+  // ---- single review ----
+  const { ok, d } = await post('/api/predict', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ review: document.getElementById('review').value }) });
+  if (!ok) return show(el('div', 'error', d.error || 'Server error'));
+  show(el('div', 'label ' + d.label, d.label.toUpperCase()));
+};
+
+function showTable(d) {
+  const wrap = el('div');
+  wrap.appendChild(el('div', 'note', `${d.results.length} reviews analyzed (reviews read from column "${d.column}")`));
+  const box = el('div', 'scroll'), table = el('table'), head = el('tr');
+  head.append(el('th', '', 'Review'), el('th', '', 'Sentiment'));
+  table.appendChild(head);
+  for (const r of d.results) {
+    const tr = el('tr');
+    tr.append(el('td', '', r.review), el('td', 's ' + r.sentiment, r.sentiment));
+    table.appendChild(tr);
+  }
+  box.appendChild(table); wrap.appendChild(box);
+
+  const btn = el('button', '', 'Download results (CSV)');
+  btn.onclick = () => {
+    const q = (s) => '"' + String(s).replace(/"/g, '""') + '"';
+    const csv = '﻿' + 'review,sentiment\r\n' + d.results.map(r => q(r.review) + ',' + r.sentiment).join('\r\n');
+    const a = el('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'sentiment_results.csv'; a.click();
+  };
+  wrap.appendChild(btn);
+  show(wrap);
+}
+</script></body></html>
